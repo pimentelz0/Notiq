@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Solid full-bleed offwhite background -->
+  <rect width="512" height="512" fill="#F9F9F8"/>
+
+  <!-- Pencil & Scribble composition centered within safe-zone -->
+  <g fill="none" stroke="#1C1917" stroke-linecap="round" stroke-linejoin="round">
+    
+    <!-- Fluid organic scribble / rabisco stroke trailing from the pencil tip -->
+    <path d="M 204 296 
+             C 185 315, 148 335, 140 360 
+             C 132 385, 168 396, 195 380 
+             C 228 360, 205 328, 240 338 
+             C 272 346, 290 382, 325 380 
+             C 352 378, 375 358, 395 362" 
+          stroke-width="16" />
+
+    <!-- Minimalist Pencil Group (angled at 45 degrees) -->
+    <g transform="translate(262, 218) rotate(42)">
+      <!-- Pencil Body / Barrel -->
+      <!-- Left & Right outer edges -->
+      <path d="M -18,-115 L -18,48 L 0,86 L 18,48 L 18,-115 Z" 
+            stroke-width="15" 
+            fill="#F9F9F8" />
+      
+      <!-- Central facet spine -->
+      <line x1="0" y1="-115" x2="0" y2="48" stroke-width="11" />
+
+      <!-- Sharpened wood collar arc / scallop -->
+      <path d="M -18,48 Q 0,40 18,48" stroke-width="11" />
+
+      <!-- Solid graphite lead tip -->
+      <polygon points="-8,70 0,86 8,70" fill="#1C1917" stroke="#1C1917" stroke-width="6" />
+
+      <!-- Ferrule (metal band) -->
+      <line x1="-18" y1="-115" x2="18" y2="-115" stroke-width="12" />
+      <line x1="-18" y1="-128" x2="18" y2="-128" stroke-width="10" />
+
+      <!-- Eraser tip (rounded minimalist arch) -->
+      <path d="M -18,-128 C -18,-148 18,-148 18,-128" 
+            stroke-width="14" 
+            fill="#1C1917" />
+    </g>
+
+    <!-- Tiny decorative sketch accent / graphite flick -->
+    <path d="M 235 272 C 242 265, 248 262, 256 260" stroke-width="9" opacity="0.6" />
+  </g>
+</svg>

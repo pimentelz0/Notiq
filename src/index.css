@@ -1,0 +1,45 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    font-family: 'Times New Roman', Times, 'Nimbus Roman No9 L', serif;
+    color-scheme: light;
+  }
+
+  body {
+    background-color: #F9F9F8;
+    color: #1C1917;
+    min-height: 100vh;
+    min-height: 100dvh;
+    -webkit-tap-highlight-color: transparent;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+
+  input, textarea, select, button {
+    font-family: inherit;
+  }
+}
+
+.font-times {
+  font-family: 'Times New Roman', Times, serif;
+}
+
+/* Minimalist neutral custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: #F5F5F4;
+}
+::-webkit-scrollbar-thumb {
+  background: #D6D3D1;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #A8A29E;
+}
+

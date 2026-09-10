@@ -1,0 +1,6 @@
+{
+  "name": "NOTIQ",
+  "description": "Bloco de notas minimalista e compartilhado em tempo real.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
