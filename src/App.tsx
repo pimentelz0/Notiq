@@ -242,7 +242,7 @@ export default function App() {
 
   // Handle Edit click from NoteCard
   const handleEditItem = (item: Note) => {
-    const isChecklist = item.type === 'checklist' || (item.checklist && item.checklist.length > 0);
+    const isChecklist = item.type === 'checklist' || item.category === 'Listas' || (item.checklist && item.checklist.length > 0);
     if (isChecklist) {
       setEditingChecklist(item);
       setIsChecklistModalOpen(true);
@@ -255,7 +255,7 @@ export default function App() {
   // Filtered list by activeTab and searchTerm
   const filteredItems = useMemo(() => {
     return notes.filter((note) => {
-      const isChecklist = note.type === 'checklist' || (note.checklist && note.checklist.length > 0);
+      const isChecklist = note.type === 'checklist' || note.category === 'Listas' || (note.checklist && note.checklist.length > 0);
 
       // Separate into two distinct tabs
       if (activeTab === 'notes' && isChecklist) {

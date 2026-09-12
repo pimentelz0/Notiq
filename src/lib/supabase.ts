@@ -103,19 +103,26 @@ export async function fetchNotesFromSupabase(): Promise<{ notes: Note[]; error?:
       return { notes: [], error: error.message };
     }
 
-    const formatted: Note[] = (data || []).map((row) => ({
-      id: row.id,
-      type: row.type || (Array.isArray(row.checklist) && row.checklist.length > 0 ? 'checklist' : 'note'),
-      title: row.title || '',
-      content: row.content || '',
-      pinned: Boolean(row.pinned),
-      color: row.color || 'offwhite',
-      category: row.category || 'Geral',
-      checklist: Array.isArray(row.checklist) ? row.checklist : [],
-      attachments: Array.isArray(row.attachments) ? row.attachments : [],
-      created_at: row.created_at || new Date().toISOString(),
-      updated_at: row.updated_at,
-    }));
+    const formatted: Note[] = (data || []).map((row) => {
+      const isList = row.type === 'checklist' || 
+                     row.category === 'Listas' || 
+                     row.category === 'Checklist' || 
+                     (Array.isArray(row.checklist) && row.checklist.length > 0);
+
+      return {
+        id: row.id,
+        type: isList ? 'checklist' : 'note',
+        title: row.title || '',
+        content: row.content || '',
+        pinned: Boolean(row.pinned),
+        color: row.color || 'offwhite',
+        category: row.category || (isList ? 'Listas' : 'Geral'),
+        checklist: Array.isArray(row.checklist) ? row.checklist : [],
+        attachments: Array.isArray(row.attachments) ? row.attachments : [],
+        created_at: row.created_at || new Date().toISOString(),
+        updated_at: row.updated_at,
+      };
+    });
 
     return { notes: formatted };
   } catch (err: unknown) {
@@ -126,15 +133,15 @@ export async function fetchNotesFromSupabase(): Promise<{ notes: Note[]; error?:
 // Create a new note in Supabase
 export async function insertNoteToSupabase(note: Omit<Note, 'id' | 'created_at'>): Promise<{ note?: Note; error?: string }> {
   try {
+    const isList = note.type === 'checklist' || note.category === 'Listas' || (note.checklist && note.checklist.length > 0);
     const payload = {
-      type: note.type || (note.checklist?.length > 0 ? 'checklist' : 'note'),
-      title: note.title,
-      content: note.content,
-      pinned: note.pinned,
-      color: note.color,
-      category: note.category,
-      checklist: note.checklist,
-      attachments: note.attachments,
+      title: note.title || '',
+      content: note.content || '',
+      pinned: Boolean(note.pinned),
+      color: note.color || 'offwhite',
+      category: note.category || (isList ? 'Listas' : 'Geral'),
+      checklist: Array.isArray(note.checklist) ? note.checklist : [],
+      attachments: Array.isArray(note.attachments) ? note.attachments : [],
       updated_at: new Date().toISOString(),
     };
 
@@ -150,12 +157,12 @@ export async function insertNoteToSupabase(note: Omit<Note, 'id' | 'created_at'>
 
     const inserted: Note = {
       id: data.id,
-      type: data.type || payload.type,
-      title: data.title,
-      content: data.content,
-      pinned: data.pinned,
-      color: data.color,
-      category: data.category,
+      type: isList ? 'checklist' : 'note',
+      title: data.title || '',
+      content: data.content || '',
+      pinned: Boolean(data.pinned),
+      color: data.color || 'offwhite',
+      category: data.category || (isList ? 'Listas' : 'Geral'),
       checklist: data.checklist || [],
       attachments: data.attachments || [],
       created_at: data.created_at,
@@ -177,6 +184,11 @@ export async function updateNoteInSupabase(id: string, updates: Partial<Note>): 
     };
     delete payload.id;
     delete payload.created_at;
+    delete payload.type; // A tabela do Supabase usa category e checklist, não possui a coluna type
+
+    if (updates.type === 'checklist' && !payload.category) {
+      payload.category = 'Listas';
+    }
 
     const { error } = await supabase
       .from('notes')
