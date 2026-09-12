@@ -9,6 +9,7 @@ import {
   Square
 } from 'lucide-react';
 import { Note } from '../types';
+import { getCardColorStyle } from '../lib/colors';
 
 interface NoteCardProps {
   note: Note;
@@ -19,29 +20,6 @@ interface NoteCardProps {
   onOpenImage: (url: string, name: string) => void;
 }
 
-const colorStyles: Record<string, { bg: string; border: string }> = {
-  offwhite: {
-    bg: 'bg-[#FFFFFF]',
-    border: 'border-[#E7E5E4] hover:border-[#D6D3D1]',
-  },
-  sand: {
-    bg: 'bg-[#FAF8F5]',
-    border: 'border-[#EAE5DD] hover:border-[#D9D3C8]',
-  },
-  'warm-gray': {
-    bg: 'bg-[#F5F5F4]',
-    border: 'border-[#E3E0DD] hover:border-[#CECAC5]',
-  },
-  'soft-linen': {
-    bg: 'bg-[#F7F6F0]',
-    border: 'border-[#E6E3D8] hover:border-[#D3CFBF]',
-  },
-  'pale-clay': {
-    bg: 'bg-[#F7F5F3]',
-    border: 'border-[#E6E1DC] hover:border-[#D4CDC6]',
-  },
-};
-
 export const NoteCard: React.FC<NoteCardProps> = ({
   note,
   onEdit,
@@ -50,7 +28,7 @@ export const NoteCard: React.FC<NoteCardProps> = ({
   onToggleCheckItem,
   onOpenImage,
 }) => {
-  const currentStyle = colorStyles[note.color] || colorStyles.offwhite;
+  const currentStyle = getCardColorStyle(note.color);
 
   const formatDate = (dateString: string) => {
     try {

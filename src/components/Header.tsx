@@ -3,37 +3,29 @@ import {
   Plus, 
   Search, 
   CheckSquare, 
-  Pin, 
-  Paperclip,
+  FileText, 
   X,
   LogOut
 } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { ActiveTab } from '../types';
 
 interface HeaderProps {
+  activeTab: ActiveTab;
+  onTabChange: (tab: ActiveTab) => void;
   searchTerm: string;
   onSearchChange: (val: string) => void;
-  filterOnlyPinned: boolean;
-  onTogglePinnedFilter: () => void;
-  filterOnlyChecklist: boolean;
-  onToggleChecklistFilter: () => void;
-  filterOnlyMedia: boolean;
-  onToggleMediaFilter: () => void;
-  onOpenNewNote: () => void;
+  onOpenNewItem: () => void;
   onLogout?: () => void;
   userEmail?: string | null;
 }
 
 export const Header: React.FC<HeaderProps> = ({
+  activeTab,
+  onTabChange,
   searchTerm,
   onSearchChange,
-  filterOnlyPinned,
-  onTogglePinnedFilter,
-  filterOnlyChecklist,
-  onToggleChecklistFilter,
-  filterOnlyMedia,
-  onToggleMediaFilter,
-  onOpenNewNote,
+  onOpenNewItem,
   onLogout,
   userEmail,
 }) => {
@@ -52,11 +44,11 @@ export const Header: React.FC<HeaderProps> = ({
             <PWAInstallButton />
 
             <button
-              onClick={onOpenNewNote}
-              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1C1917] hover:bg-[#292524] active:scale-95 text-xs font-normal text-[#F9F9F8] transition cursor-pointer shadow-xs"
+              onClick={onOpenNewItem}
+              className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#1C1917] hover:bg-[#292524] active:scale-95 text-xs font-normal text-[#F9F9F8] transition cursor-pointer shadow-xs font-times"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Nova Anotação</span>
+              <span>{activeTab === 'notes' ? 'Nova Anotação' : 'Nova Lista'}</span>
             </button>
 
             {onLogout && (
@@ -72,7 +64,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
 
-        {/* Search and Filters Bar */}
+        {/* Search and Tabs Bar */}
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 pt-0.5">
           {/* Search Input */}
           <div className="relative flex-1">
@@ -82,54 +74,46 @@ export const Header: React.FC<HeaderProps> = ({
               placeholder=""
               value={searchTerm}
               onChange={(e) => onSearchChange(e.target.value)}
-              className="w-full pl-8 pr-7 py-1.5 text-xs text-[#1C1917] bg-[#F5F5F4] hover:bg-[#EFEFEF] focus:bg-white border border-[#E7E5E4] rounded-lg focus:outline-none focus:border-[#78716C] transition"
+              className="w-full pl-8 pr-7 py-1.5 text-xs text-[#1C1917] bg-[#F5F5F4] hover:bg-[#EFEFEF] focus:bg-white border border-[#E7E5E4] rounded-lg focus:outline-none focus:border-[#78716C] transition font-times"
             />
             {searchTerm && (
               <button
                 onClick={() => onSearchChange('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A8A29E] hover:text-[#1C1917] p-0.5"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#A8A29E] hover:text-[#1C1917] p-0.5 cursor-pointer"
               >
                 <X className="w-3 h-3" />
               </button>
             )}
           </div>
 
-          {/* Quick attribute filter toggles */}
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 sm:pb-0 scrollbar-none">
+          {/* Two distinct tabs: Notas and Listas */}
+          <div className="flex items-center p-0.5 bg-[#EFECE6] border border-[#E7E5E4] rounded-lg self-start sm:self-auto">
             <button
-              onClick={onTogglePinnedFilter}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition cursor-pointer border ${
-                filterOnlyPinned
-                  ? 'bg-[#1C1917] text-[#F9F9F8] border-[#1C1917]'
-                  : 'bg-[#F5F5F4] text-[#78716C] border-[#E7E5E4] hover:text-[#1C1917]'
+              type="button"
+              id="tab-btn-notes"
+              onClick={() => onTabChange('notes')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-normal transition cursor-pointer font-times ${
+                activeTab === 'notes'
+                  ? 'bg-[#1C1917] text-[#F9F9F8] shadow-2xs font-medium'
+                  : 'text-[#57534E] hover:text-[#1C1917]'
               }`}
             >
-              <Pin className={`w-3 h-3 ${filterOnlyPinned ? 'fill-current' : ''}`} />
-              <span>Fixadas</span>
+              <FileText className="w-3.5 h-3.5" />
+              <span>Notas</span>
             </button>
 
             <button
-              onClick={onToggleChecklistFilter}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition cursor-pointer border ${
-                filterOnlyChecklist
-                  ? 'bg-[#1C1917] text-[#F9F9F8] border-[#1C1917]'
-                  : 'bg-[#F5F5F4] text-[#78716C] border-[#E7E5E4] hover:text-[#1C1917]'
+              type="button"
+              id="tab-btn-lists"
+              onClick={() => onTabChange('lists')}
+              className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-normal transition cursor-pointer font-times ${
+                activeTab === 'lists'
+                  ? 'bg-[#1C1917] text-[#F9F9F8] shadow-2xs font-medium'
+                  : 'text-[#57534E] hover:text-[#1C1917]'
               }`}
             >
-              <CheckSquare className="w-3 h-3" />
+              <CheckSquare className="w-3.5 h-3.5" />
               <span>Listas</span>
-            </button>
-
-            <button
-              onClick={onToggleMediaFilter}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs transition cursor-pointer border ${
-                filterOnlyMedia
-                  ? 'bg-[#1C1917] text-[#F9F9F8] border-[#1C1917]'
-                  : 'bg-[#F5F5F4] text-[#78716C] border-[#E7E5E4] hover:text-[#1C1917]'
-              }`}
-            >
-              <Paperclip className="w-3 h-3" />
-              <span>Anexos</span>
             </button>
           </div>
         </div>

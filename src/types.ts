@@ -14,10 +14,22 @@ export interface AttachmentItem {
   createdAt: string;
 }
 
-export type NoteColor = 'offwhite' | 'sand' | 'warm-gray' | 'soft-linen' | 'pale-clay';
+export type NoteColor = 
+  | 'offwhite' 
+  | 'peach' 
+  | 'yellow' 
+  | 'green' 
+  | 'blue' 
+  | 'lavender' 
+  | 'rose'
+  | 'sand' 
+  | 'warm-gray' 
+  | 'soft-linen' 
+  | 'pale-clay';
 
 export interface Note {
   id: string;
+  type?: 'note' | 'checklist';
   title: string;
   content: string;
   pinned: boolean;
@@ -29,4 +41,5 @@ export interface Note {
   updated_at?: string;
 }
 
+export type ActiveTab = 'notes' | 'lists';
 export type CategoryFilter = 'Todas' | 'Listas' | 'Ideias' | 'Lembretes' | 'Projetos' | 'Geral';

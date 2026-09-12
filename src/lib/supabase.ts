@@ -1,9 +1,19 @@
 import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import { Note } from '../types';
 
-// Clean Supabase endpoint URL
-const rawUrl = (import.meta.env.VITE_SUPABASE_URL || 'https://ymwgmxdhysksvnzxetaj.supabase.co').trim();
-export const SUPABASE_URL = rawUrl.replace(/\/rest\/v1\/?$/, '').replace(/\/+$/, '');
+// Normaliza e limpa a URL do Supabase, removendo /rest/v1 e barras finais
+export function normalizeSupabaseUrl(url?: string): string {
+  const raw = (url || '').trim();
+  if (!raw) return 'https://ymwgmxdhysksvnzxetaj.supabase.co';
+  try {
+    const parsed = new URL(raw);
+    return parsed.origin;
+  } catch {
+    return raw.replace(/\/rest\/v1\/?.*$/, '').replace(/\/+$/, '').trim();
+  }
+}
+
+export const SUPABASE_URL = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL);
 export const SUPABASE_ANON_KEY = (
   import.meta.env.VITE_SUPABASE_ANON_KEY || 
   'sb_publishable_Gcc0XMDRcdI_SKFjvCTYZQ_zC-NmBeN'
@@ -26,6 +36,7 @@ create table if not exists public.notes (
   id uuid default gen_random_uuid() primary key,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null,
   updated_at timestamp with time zone default timezone('utc'::text, now()),
+  type text default 'note',
   title text not null default '',
   content text default '',
   pinned boolean default false,
@@ -35,17 +46,30 @@ create table if not exists public.notes (
   attachments jsonb default '[]'::jsonb
 );
 
--- Ativar RLS e liberar acesso sem login para o casal
-alter table public.notes enable row level security;
+-- Garantir colunas essenciais
+alter table public.notes add column if not exists type text default 'note';
+alter table public.notes add column if not exists updated_at timestamp with time zone default timezone('utc'::text, now());
+alter table public.notes add column if not exists checklist jsonb default '[]'::jsonb;
+alter table public.notes add column if not exists attachments jsonb default '[]'::jsonb;
 
-create policy "Acesso compartilhado NOTIQ"
-  on public.notes
-  for all
-  using (true)
-  with check (true);
+-- Permissões essenciais para leitura e gravação no Supabase:
+grant usage on schema public to anon, authenticated;
+grant all on table public.notes to anon, authenticated, service_role;
+grant all on all sequences in schema public to anon, authenticated, service_role;
 
--- Ativar tempo real
-alter publication supabase_realtime add table public.notes;
+-- Desativar RLS para permitir leitura e gravação livre entre o casal:
+alter table public.notes disable row level security;
+
+-- Habilitar sincronização em tempo real (Realtime):
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables 
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'notes'
+  ) then
+    alter publication supabase_realtime add table public.notes;
+  end if;
+end $$;
 `;
 
 // Test connectivity silently
@@ -81,6 +105,7 @@ export async function fetchNotesFromSupabase(): Promise<{ notes: Note[]; error?:
 
     const formatted: Note[] = (data || []).map((row) => ({
       id: row.id,
+      type: row.type || (Array.isArray(row.checklist) && row.checklist.length > 0 ? 'checklist' : 'note'),
       title: row.title || '',
       content: row.content || '',
       pinned: Boolean(row.pinned),
@@ -102,6 +127,7 @@ export async function fetchNotesFromSupabase(): Promise<{ notes: Note[]; error?:
 export async function insertNoteToSupabase(note: Omit<Note, 'id' | 'created_at'>): Promise<{ note?: Note; error?: string }> {
   try {
     const payload = {
+      type: note.type || (note.checklist?.length > 0 ? 'checklist' : 'note'),
       title: note.title,
       content: note.content,
       pinned: note.pinned,
@@ -124,6 +150,7 @@ export async function insertNoteToSupabase(note: Omit<Note, 'id' | 'created_at'>
 
     const inserted: Note = {
       id: data.id,
+      type: data.type || payload.type,
       title: data.title,
       content: data.content,
       pinned: data.pinned,

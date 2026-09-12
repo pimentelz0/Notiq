@@ -2,9 +2,10 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, 
   RefreshCw, 
-  WifiOff
+  WifiOff,
+  AlertCircle
 } from 'lucide-react';
-import { Note } from './types';
+import { Note, ActiveTab } from './types';
 import { 
   fetchNotesFromSupabase, 
   insertNoteToSupabase, 
@@ -14,28 +15,34 @@ import {
   subscribeToSupabaseNotes,
   supabase
 } from './lib/supabase';
+import { clearLegacyLocalNotes } from './lib/storage';
 import { Header } from './components/Header';
 import { NoteCard } from './components/NoteCard';
 import { NoteModal } from './components/NoteModal';
+import { ChecklistModal } from './components/ChecklistModal';
 import { ImageLightbox } from './components/ImageLightbox';
 import { EmptyState } from './components/EmptyState';
 import { LoginScreen } from './components/LoginScreen';
 
 export default function App() {
+  // Direct state from Supabase (no local storage persistence for user data)
   const [notes, setNotes] = useState<Note[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isRefreshing, setIsRefreshing] = useState(false);
-  const [isSupabaseReady, setIsSupabaseReady] = useState(false);
+  const [supabaseError, setSupabaseError] = useState<string | null>(null);
 
-  // Filters & Search
+  // Active Tab: 'notes' (Notas) or 'lists' (Listas)
+  const [activeTab, setActiveTab] = useState<ActiveTab>('notes');
+
+  // Search
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterOnlyPinned, setFilterOnlyPinned] = useState(false);
-  const [filterOnlyChecklist, setFilterOnlyChecklist] = useState(false);
-  const [filterOnlyMedia, setFilterOnlyMedia] = useState(false);
 
   // Modals
   const [isNoteModalOpen, setIsNoteModalOpen] = useState(false);
   const [editingNote, setEditingNote] = useState<Note | null>(null);
+
+  const [isChecklistModalOpen, setIsChecklistModalOpen] = useState(false);
+  const [editingChecklist, setEditingChecklist] = useState<Note | null>(null);
+
   const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
 
   // Auth State
@@ -45,6 +52,12 @@ export default function App() {
   // Connectivity
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
+  // Clear any legacy local cache on start as requested
+  useEffect(() => {
+    clearLegacyLocalNotes();
+  }, []);
+
+  // Monitor auth status
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
@@ -71,6 +84,7 @@ export default function App() {
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setCurrentUserEmail(null);
+    setNotes([]);
   };
 
   useEffect(() => {
@@ -84,109 +98,127 @@ export default function App() {
     };
   }, []);
 
-  // Fetch data from Supabase
-  const loadData = useCallback(async (showIndicator = false) => {
-    if (showIndicator) setIsRefreshing(true);
-
-    const test = await testSupabaseConnection();
-    setIsSupabaseReady(test.isReady);
-
-    if (test.isReady) {
-      const result = await fetchNotesFromSupabase();
-      if (!result.error) {
-        setNotes(result.notes);
+  // Fetch data directly from Supabase
+  const loadData = useCallback(async () => {
+    setIsLoading(true);
+    try {
+      const connTest = await testSupabaseConnection();
+      if (!connTest.isReady && connTest.error) {
+        setSupabaseError(connTest.error);
       }
-    }
 
-    setIsLoading(false);
-    setIsRefreshing(false);
+      const result = await fetchNotesFromSupabase();
+      if (result.error) {
+        setSupabaseError(result.error);
+      } else {
+        setNotes(result.notes || []);
+        setSupabaseError(null);
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Erro ao conectar ao Supabase';
+      setSupabaseError(message);
+    } finally {
+      setIsLoading(false);
+    }
   }, []);
 
-  // Initial load
+  // Initial load when session is checked
   useEffect(() => {
-    loadData();
-  }, [loadData]);
+    if (sessionChecked && currentUserEmail) {
+      loadData();
+    }
+  }, [sessionChecked, currentUserEmail, loadData]);
 
-  // Real-time synchronization
+  // Real-time synchronization directly with Supabase
   useEffect(() => {
-    if (!isSupabaseReady) return;
+    if (!currentUserEmail) return;
 
     const unsubscribe = subscribeToSupabaseNotes(() => {
       loadData();
     });
 
-    const pollInterval = setInterval(() => {
+    // Auto-refresh when tab gains visibility
+    const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
         loadData();
       }
-    }, 8000);
+    };
+    document.addEventListener('visibilitychange', handleVisibility);
 
     return () => {
       unsubscribe();
-      clearInterval(pollInterval);
+      document.removeEventListener('visibilitychange', handleVisibility);
     };
-  }, [isSupabaseReady, loadData]);
+  }, [currentUserEmail, loadData]);
 
-  // Create / Update Note
-  const handleSaveNote = async (
-    noteData: Omit<Note, 'id' | 'created_at'>,
+  // Create / Update Note or Checklist directly in Supabase
+  const handleSaveItem = async (
+    itemData: Omit<Note, 'id' | 'created_at'>,
     id?: string
   ) => {
     if (id) {
-      // Optimistic update
+      // Update existing item in Supabase
+      const res = await updateNoteInSupabase(id, itemData);
+      if (res.error) {
+        setSupabaseError(res.error);
+        throw new Error(`Erro ao atualizar no Supabase: ${res.error}`);
+      }
+
       setNotes((prev) =>
         prev.map((n) =>
           n.id === id
             ? {
                 ...n,
-                ...noteData,
+                ...itemData,
                 updated_at: new Date().toISOString(),
               }
             : n
         )
       );
-
-      if (isSupabaseReady) {
-        await updateNoteInSupabase(id, noteData);
-      }
+      setSupabaseError(null);
     } else {
-      const newId = crypto.randomUUID ? crypto.randomUUID() : String(Date.now());
-      const newNote: Note = {
-        id: newId,
-        ...noteData,
-        created_at: new Date().toISOString(),
-      };
+      // Create new item in Supabase
+      const res = await insertNoteToSupabase(itemData);
+      if (res.error) {
+        setSupabaseError(res.error);
+        throw new Error(`Erro ao salvar no Supabase: ${res.error}`);
+      }
 
-      // Optimistic create
-      setNotes((prev) => [newNote, ...prev]);
-
-      if (isSupabaseReady) {
-        await insertNoteToSupabase(noteData);
+      if (res.note) {
+        setNotes((prev) => [res.note!, ...prev]);
+        setSupabaseError(null);
       }
     }
   };
 
-  // Delete note
+  // Delete note or checklist directly from Supabase
   const handleDeleteNote = async (id: string) => {
-    setNotes((prev) => prev.filter((n) => n.id !== id));
-    if (isSupabaseReady) {
-      await deleteNoteFromSupabase(id);
+    const res = await deleteNoteFromSupabase(id);
+    if (res.error) {
+      setSupabaseError(res.error);
+      alert(`Falha ao excluir no Supabase: ${res.error}`);
+      return;
     }
+
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+    setSupabaseError(null);
   };
 
-  // Toggle Pin
+  // Toggle Pin directly in Supabase
   const handleTogglePin = async (id: string, currentPinned: boolean) => {
     const newPinned = !currentPinned;
-    setNotes((prev) =>
-      prev.map((n) => (n.id === id ? { ...n, pinned: newPinned } : n))
-    );
-
-    if (isSupabaseReady) {
-      await updateNoteInSupabase(id, { pinned: newPinned });
+    const res = await updateNoteInSupabase(id, { pinned: newPinned });
+    if (res.error) {
+      setSupabaseError(res.error);
+      alert(`Erro ao alterar fixação no Supabase: ${res.error}`);
+      return;
     }
+
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, pinned: newPinned } : n)));
+    setSupabaseError(null);
   };
 
-  // Toggle Checklist item
+  // Toggle Checklist item directly in Supabase
   const handleToggleCheckItem = async (noteId: string, itemId: string) => {
     const target = notes.find((n) => n.id === noteId);
     if (!target) return;
@@ -195,51 +227,64 @@ export default function App() {
       item.id === itemId ? { ...item, completed: !item.completed } : item
     );
 
+    const res = await updateNoteInSupabase(noteId, { checklist: updatedChecklist });
+    if (res.error) {
+      setSupabaseError(res.error);
+      alert(`Erro ao atualizar item no Supabase: ${res.error}`);
+      return;
+    }
+
     setNotes((prev) =>
       prev.map((n) => (n.id === noteId ? { ...n, checklist: updatedChecklist } : n))
     );
+    setSupabaseError(null);
+  };
 
-    if (isSupabaseReady) {
-      await updateNoteInSupabase(noteId, { checklist: updatedChecklist });
+  // Handle Edit click from NoteCard
+  const handleEditItem = (item: Note) => {
+    const isChecklist = item.type === 'checklist' || (item.checklist && item.checklist.length > 0);
+    if (isChecklist) {
+      setEditingChecklist(item);
+      setIsChecklistModalOpen(true);
+    } else {
+      setEditingNote(item);
+      setIsNoteModalOpen(true);
     }
   };
 
-  // Filtered notes list
-  const filteredNotes = useMemo(() => {
+  // Filtered list by activeTab and searchTerm
+  const filteredItems = useMemo(() => {
     return notes.filter((note) => {
-      if (filterOnlyPinned && !note.pinned) {
+      const isChecklist = note.type === 'checklist' || (note.checklist && note.checklist.length > 0);
+
+      // Separate into two distinct tabs
+      if (activeTab === 'notes' && isChecklist) {
         return false;
       }
-      if (filterOnlyChecklist && (!note.checklist || note.checklist.length === 0)) {
+      if (activeTab === 'lists' && !isChecklist) {
         return false;
       }
-      if (filterOnlyMedia && (!note.attachments || note.attachments.length === 0)) {
-        return false;
-      }
+
+      // Search matching
       if (searchTerm.trim()) {
         const query = searchTerm.toLowerCase().trim();
         const inTitle = note.title?.toLowerCase().includes(query);
         const inContent = note.content?.toLowerCase().includes(query);
-        const inChecklist = note.checklist?.some((c) =>
+        const inChecklistItems = note.checklist?.some((c) =>
           c.text.toLowerCase().includes(query)
         );
         const inAttachments = note.attachments?.some((a) =>
           a.name.toLowerCase().includes(query)
         );
-        return inTitle || inContent || inChecklist || inAttachments;
+        return inTitle || inContent || inChecklistItems || inAttachments;
       }
+
       return true;
     });
-  }, [
-    notes,
-    filterOnlyPinned,
-    filterOnlyChecklist,
-    filterOnlyMedia,
-    searchTerm,
-  ]);
+  }, [notes, activeTab, searchTerm]);
 
-  const pinnedNotes = useMemo(() => filteredNotes.filter((n) => n.pinned), [filteredNotes]);
-  const regularNotes = useMemo(() => filteredNotes.filter((n) => !n.pinned), [filteredNotes]);
+  const pinnedItems = useMemo(() => filteredItems.filter((n) => n.pinned), [filteredItems]);
+  const regularItems = useMemo(() => filteredItems.filter((n) => !n.pinned), [filteredItems]);
 
   if (!sessionChecked) {
     return (
@@ -266,23 +311,35 @@ export default function App() {
       {!isOnline && (
         <div className="bg-[#F5F5F4] border-b border-[#E7E5E4] px-4 py-1.5 text-center text-xs text-[#78716C] flex items-center justify-center gap-1.5 font-times">
           <WifiOff className="w-3.5 h-3.5 text-[#A8A29E]" />
-          <span>Modo offline. Suas anotações serão sincronizadas automaticamente.</span>
+          <span>Sem conexão com a internet. Conecte-se para sincronizar com o Supabase.</span>
         </div>
       )}
 
-      {/* Main Header */}
+      {/* Supabase Error Banner if any */}
+      {supabaseError && (
+        <div className="bg-[#FEF2F2] border-b border-[#FECACA] px-4 py-2 text-center text-xs text-[#991B1B] flex flex-wrap items-center justify-center gap-2 font-times">
+          <AlertCircle className="w-3.5 h-3.5 text-[#DC2626] shrink-0" />
+          <span>Supabase: {supabaseError}</span>
+        </div>
+      )}
+
+      {/* Main Header with two distinct tabs: Notas and Listas */}
       <Header
+        activeTab={activeTab}
+        onTabChange={(tab) => {
+          setActiveTab(tab);
+          setSearchTerm('');
+        }}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-        filterOnlyPinned={filterOnlyPinned}
-        onTogglePinnedFilter={() => setFilterOnlyPinned(!filterOnlyPinned)}
-        filterOnlyChecklist={filterOnlyChecklist}
-        onToggleChecklistFilter={() => setFilterOnlyChecklist(!filterOnlyChecklist)}
-        filterOnlyMedia={filterOnlyMedia}
-        onToggleMediaFilter={() => setFilterOnlyMedia(!filterOnlyMedia)}
-        onOpenNewNote={() => {
-          setEditingNote(null);
-          setIsNoteModalOpen(true);
+        onOpenNewItem={() => {
+          if (activeTab === 'notes') {
+            setEditingNote(null);
+            setIsNoteModalOpen(true);
+          } else {
+            setEditingChecklist(null);
+            setIsChecklistModalOpen(true);
+          }
         }}
         onLogout={handleLogout}
         userEmail={currentUserEmail}
@@ -293,41 +350,39 @@ export default function App() {
         {isLoading ? (
           <div className="py-24 flex flex-col items-center justify-center gap-2">
             <RefreshCw className="w-4 h-4 animate-spin text-[#78716C]" />
-            <p className="text-xs text-[#78716C] font-times">Carregando NOTIQ...</p>
+            <p className="text-xs text-[#78716C] font-times">Carregando do Supabase...</p>
           </div>
-        ) : filteredNotes.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <EmptyState
-            isSearching={Boolean(searchTerm || filterOnlyPinned || filterOnlyChecklist || filterOnlyMedia)}
-            onClearSearch={() => {
-              setSearchTerm('');
-              setFilterOnlyPinned(false);
-              setFilterOnlyChecklist(false);
-              setFilterOnlyMedia(false);
-            }}
+            activeTab={activeTab}
+            isSearching={Boolean(searchTerm)}
+            onClearSearch={() => setSearchTerm('')}
             onNewNote={() => {
-              setEditingNote(null);
-              setIsNoteModalOpen(true);
+              if (activeTab === 'notes') {
+                setEditingNote(null);
+                setIsNoteModalOpen(true);
+              } else {
+                setEditingChecklist(null);
+                setIsChecklistModalOpen(true);
+              }
             }}
           />
         ) : (
           <div className="space-y-6">
-            {/* Pinned Notes Section */}
-            {pinnedNotes.length > 0 && (
+            {/* Pinned Items Section */}
+            {pinnedItems.length > 0 && (
               <div>
                 <div className="flex items-center gap-2 mb-2.5">
                   <span className="text-[11px] font-normal tracking-[0.16em] text-[#78716C] uppercase font-times">
-                    Fixadas ({pinnedNotes.length})
+                    Fixadas ({pinnedItems.length})
                   </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {pinnedNotes.map((note) => (
+                  {pinnedItems.map((item) => (
                     <NoteCard
-                      key={note.id}
-                      note={note}
-                      onEdit={(n) => {
-                        setEditingNote(n);
-                        setIsNoteModalOpen(true);
-                      }}
+                      key={item.id}
+                      note={item}
+                      onEdit={handleEditItem}
                       onDelete={handleDeleteNote}
                       onTogglePin={handleTogglePin}
                       onToggleCheckItem={handleToggleCheckItem}
@@ -338,25 +393,24 @@ export default function App() {
               </div>
             )}
 
-            {/* Regular Notes Section */}
-            {regularNotes.length > 0 && (
+            {/* Regular Items Section */}
+            {regularItems.length > 0 && (
               <div>
-                {pinnedNotes.length > 0 && (
+                {pinnedItems.length > 0 && (
                   <div className="flex items-center gap-2 mb-2.5 pt-2">
                     <span className="text-[11px] font-normal tracking-[0.16em] text-[#78716C] uppercase font-times">
-                      Anotações ({regularNotes.length})
+                      {activeTab === 'notes'
+                        ? `Anotações (${regularItems.length})`
+                        : `Listas (${regularItems.length})`}
                     </span>
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {regularNotes.map((note) => (
+                  {regularItems.map((item) => (
                     <NoteCard
-                      key={note.id}
-                      note={note}
-                      onEdit={(n) => {
-                        setEditingNote(n);
-                        setIsNoteModalOpen(true);
-                      }}
+                      key={item.id}
+                      note={item}
+                      onEdit={handleEditItem}
                       onDelete={handleDeleteNote}
                       onTogglePin={handleTogglePin}
                       onToggleCheckItem={handleToggleCheckItem}
@@ -374,17 +428,23 @@ export default function App() {
       <div className="sm:hidden fixed bottom-6 right-6 z-40">
         <button
           onClick={() => {
-            setEditingNote(null);
-            setIsNoteModalOpen(true);
+            if (activeTab === 'notes') {
+              setEditingNote(null);
+              setIsNoteModalOpen(true);
+            } else {
+              setEditingChecklist(null);
+              setIsChecklistModalOpen(true);
+            }
           }}
           className="w-12 h-12 rounded-full bg-[#1C1917] hover:bg-[#292524] active:scale-95 text-[#F9F9F8] border border-[#292524] shadow-md flex items-center justify-center cursor-pointer transition"
-          aria-label="Nova anotação"
+          aria-label={activeTab === 'notes' ? 'Nova anotação' : 'Nova lista'}
+          title={activeTab === 'notes' ? 'Nova anotação' : 'Nova lista'}
         >
           <Plus className="w-5 h-5" />
         </button>
       </div>
 
-      {/* Note Modal (Create / Edit) */}
+      {/* Note Modal (Create / Edit for regular Notes) */}
       <NoteModal
         isOpen={isNoteModalOpen}
         initialNote={editingNote}
@@ -392,7 +452,18 @@ export default function App() {
           setIsNoteModalOpen(false);
           setEditingNote(null);
         }}
-        onSave={handleSaveNote}
+        onSave={handleSaveItem}
+      />
+
+      {/* Checklist Modal (Create / Edit for Checklists) */}
+      <ChecklistModal
+        isOpen={isChecklistModalOpen}
+        initialNote={editingChecklist}
+        onClose={() => {
+          setIsChecklistModalOpen(false);
+          setEditingChecklist(null);
+        }}
+        onSave={handleSaveItem}
       />
 
       {/* Image Lightbox Modal */}
