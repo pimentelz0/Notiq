@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { 
   Plus, 
-  RefreshCw, 
   WifiOff,
   AlertCircle
 } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { Note, ActiveTab } from './types';
 import { 
   fetchNotesFromSupabase, 
@@ -23,6 +23,8 @@ import { ChecklistModal } from './components/ChecklistModal';
 import { ImageLightbox } from './components/ImageLightbox';
 import { EmptyState } from './components/EmptyState';
 import { LoginScreen } from './components/LoginScreen';
+import { ConfirmDeleteModal } from './components/ConfirmDeleteModal';
+import { Toast } from './components/Toast';
 
 export default function App() {
   // Direct state from Supabase (no local storage persistence for user data)
@@ -45,6 +47,11 @@ export default function App() {
 
   const [lightboxImage, setLightboxImage] = useState<{ url: string; name: string } | null>(null);
 
+  // Deletion confirmation & feedback toast
+  const [itemToDelete, setItemToDelete] = useState<Note | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
   // Auth State
   const [sessionChecked, setSessionChecked] = useState(false);
   const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null);
@@ -52,7 +59,7 @@ export default function App() {
   // Connectivity
   const [isOnline, setIsOnline] = useState(navigator.onLine);
 
-  // Clear any legacy local cache on start as requested
+  // Clear any legacy local cache on start
   useEffect(() => {
     clearLegacyLocalNotes();
   }, []);
@@ -98,9 +105,12 @@ export default function App() {
     };
   }, []);
 
-  // Fetch data directly from Supabase
-  const loadData = useCallback(async () => {
-    setIsLoading(true);
+  // Fetch data directly from Supabase.
+  // When silent=true, we update state in the background without triggering full-screen loading spinners.
+  const loadData = useCallback(async (silent = false) => {
+    if (!silent) {
+      setIsLoading(true);
+    }
     try {
       const connTest = await testSupabaseConnection();
       if (!connTest.isReady && connTest.error) {
@@ -118,29 +128,32 @@ export default function App() {
       const message = err instanceof Error ? err.message : 'Erro ao conectar ao Supabase';
       setSupabaseError(message);
     } finally {
-      setIsLoading(false);
+      if (!silent) {
+        setIsLoading(false);
+      }
     }
   }, []);
 
   // Initial load when session is checked
   useEffect(() => {
     if (sessionChecked && currentUserEmail) {
-      loadData();
+      loadData(false);
     }
   }, [sessionChecked, currentUserEmail, loadData]);
 
-  // Real-time synchronization directly with Supabase
+  // Real-time synchronization directly with Supabase in the background
   useEffect(() => {
     if (!currentUserEmail) return;
 
     const unsubscribe = subscribeToSupabaseNotes(() => {
-      loadData();
+      // Background silent update: keep UI active and update notes seamlessly
+      loadData(true);
     });
 
-    // Auto-refresh when tab gains visibility
+    // Auto-refresh silently when tab gains visibility
     const handleVisibility = () => {
       if (document.visibilityState === 'visible') {
-        loadData();
+        loadData(true);
       }
     };
     document.addEventListener('visibilitychange', handleVisibility);
@@ -185,23 +198,42 @@ export default function App() {
       }
 
       if (res.note) {
+        // Prepend directly so it appears instantly without page reload
         setNotes((prev) => [res.note!, ...prev]);
         setSupabaseError(null);
       }
     }
   };
 
-  // Delete note or checklist directly from Supabase
-  const handleDeleteNote = async (id: string) => {
-    const res = await deleteNoteFromSupabase(id);
+  // Open confirmation modal before deletion
+  const handleRequestDelete = (id: string) => {
+    const target = notes.find((n) => n.id === id);
+    if (target) {
+      setItemToDelete(target);
+    }
+  };
+
+  // Confirm delete from Supabase and show toast feedback
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+    setIsDeleting(true);
+
+    const isChecklist = itemToDelete.type === 'checklist' || itemToDelete.category === 'Listas' || (itemToDelete.checklist && itemToDelete.checklist.length > 0);
+    const targetId = itemToDelete.id;
+
+    const res = await deleteNoteFromSupabase(targetId);
+    setIsDeleting(false);
+
     if (res.error) {
       setSupabaseError(res.error);
       alert(`Falha ao excluir no Supabase: ${res.error}`);
       return;
     }
 
-    setNotes((prev) => prev.filter((n) => n.id !== id));
+    setNotes((prev) => prev.filter((n) => n.id !== targetId));
+    setItemToDelete(null);
     setSupabaseError(null);
+    setToastMessage(isChecklist ? 'Lista excluída com sucesso' : 'Anotação excluída com sucesso');
   };
 
   // Toggle Pin directly in Supabase
@@ -299,7 +331,7 @@ export default function App() {
       <LoginScreen
         onLoginSuccess={(email) => {
           setCurrentUserEmail(email || 'Usuário');
-          loadData();
+          loadData(false);
         }}
       />
     );
@@ -347,10 +379,9 @@ export default function App() {
 
       {/* Main Content Area */}
       <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-8 py-6">
-        {isLoading ? (
-          <div className="py-24 flex flex-col items-center justify-center gap-2">
-            <RefreshCw className="w-4 h-4 animate-spin text-[#78716C]" />
-            <p className="text-xs text-[#78716C] font-times">Carregando do Supabase...</p>
+        {isLoading && notes.length === 0 ? (
+          <div className="py-24 flex flex-col items-center justify-center gap-3">
+            <div className="w-5 h-5 border-2 border-[#1C1917] border-t-transparent rounded-full animate-spin" />
           </div>
         ) : filteredItems.length === 0 ? (
           <EmptyState
@@ -378,17 +409,27 @@ export default function App() {
                   </span>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {pinnedItems.map((item) => (
-                    <NoteCard
-                      key={item.id}
-                      note={item}
-                      onEdit={handleEditItem}
-                      onDelete={handleDeleteNote}
-                      onTogglePin={handleTogglePin}
-                      onToggleCheckItem={handleToggleCheckItem}
-                      onOpenImage={(url, name) => setLightboxImage({ url, name })}
-                    />
-                  ))}
+                  <AnimatePresence mode="popLayout">
+                    {pinnedItems.map((item) => (
+                      <motion.div
+                        key={item.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.88, y: -8, transition: { duration: 0.22, ease: 'easeOut' } }}
+                        transition={{ duration: 0.24, ease: 'easeOut' }}
+                      >
+                        <NoteCard
+                          note={item}
+                          onEdit={handleEditItem}
+                          onDelete={handleRequestDelete}
+                          onTogglePin={handleTogglePin}
+                          onToggleCheckItem={handleToggleCheckItem}
+                          onOpenImage={(url, name) => setLightboxImage({ url, name })}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               </div>
             )}
@@ -406,17 +447,27 @@ export default function App() {
                   </div>
                 )}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
-                  {regularItems.map((item) => (
-                    <NoteCard
-                      key={item.id}
-                      note={item}
-                      onEdit={handleEditItem}
-                      onDelete={handleDeleteNote}
-                      onTogglePin={handleTogglePin}
-                      onToggleCheckItem={handleToggleCheckItem}
-                      onOpenImage={(url, name) => setLightboxImage({ url, name })}
-                    />
-                  ))}
+                  <AnimatePresence mode="popLayout">
+                    {regularItems.map((item) => (
+                      <motion.div
+                        key={item.id}
+                        layout
+                        initial={{ opacity: 0, scale: 0.95, y: 8 }}
+                        animate={{ opacity: 1, scale: 1, y: 0 }}
+                        exit={{ opacity: 0, scale: 0.88, y: -8, transition: { duration: 0.22, ease: 'easeOut' } }}
+                        transition={{ duration: 0.24, ease: 'easeOut' }}
+                      >
+                        <NoteCard
+                          note={item}
+                          onEdit={handleEditItem}
+                          onDelete={handleRequestDelete}
+                          onTogglePin={handleTogglePin}
+                          onToggleCheckItem={handleToggleCheckItem}
+                          onOpenImage={(url, name) => setLightboxImage({ url, name })}
+                        />
+                      </motion.div>
+                    ))}
+                  </AnimatePresence>
                 </div>
               </div>
             )}
@@ -472,6 +523,30 @@ export default function App() {
         imageUrl={lightboxImage?.url || null}
         imageName={lightboxImage?.name}
         onClose={() => setLightboxImage(null)}
+      />
+
+      {/* Confirmation Modal Before Delete */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(itemToDelete)}
+        title={itemToDelete?.title}
+        isChecklist={
+          itemToDelete?.type === 'checklist' ||
+          itemToDelete?.category === 'Listas' ||
+          Boolean(itemToDelete?.checklist && itemToDelete.checklist.length > 0)
+        }
+        isDeleting={isDeleting}
+        onConfirm={handleConfirmDelete}
+        onClose={() => {
+          if (!isDeleting) {
+            setItemToDelete(null);
+          }
+        }}
+      />
+
+      {/* Toast Feedback */}
+      <Toast
+        message={toastMessage}
+        onClose={() => setToastMessage(null)}
       />
     </div>
   );
